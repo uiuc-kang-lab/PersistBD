@@ -1,0 +1,57 @@
+{
+  "seed": 42,
+  "max_tokens": 32768,
+  "split_unit": "instance_id",
+  "dedup_key": "traj_id",
+  "source_shards": [
+    "SWE-smith-trajectories/data/xml-00000-of-00008.parquet",
+    "SWE-smith-trajectories/data/xml-00001-of-00008.parquet",
+    "SWE-smith-trajectories/data/xml-00002-of-00008.parquet",
+    "SWE-smith-trajectories/data/xml-00003-of-00008.parquet",
+    "SWE-smith-trajectories/data/xml-00004-of-00008.parquet",
+    "SWE-smith-trajectories/data/xml-00005-of-00008.parquet",
+    "SWE-smith-trajectories/data/xml-00006-of-00008.parquet",
+    "SWE-smith-trajectories/data/xml-00007-of-00008.parquet"
+  ],
+  "targets": {
+    "insertion_test": 140,
+    "insertion_train": 2500,
+    "benign_post": 5000,
+    "attacker_train": 1200,
+    "attacker_select": 300
+  },
+  "pool": {
+    "instances_total": 7270,
+    "instances_usable": 6834,
+    "instances_dead": 436,
+    "instances_used": 6834,
+    "instances_spare": 0
+  },
+  "splits": {
+    "insertion_test": {
+      "instances": 134,
+      "rows": 140,
+      "path": "data/splits_v4/insertion_test.jsonl"
+    },
+    "insertion_train": {
+      "instances": 2451,
+      "rows": 2500,
+      "path": "data/splits_v4/insertion_train.jsonl"
+    },
+    "benign_post": {
+      "instances": 3295,
+      "rows": 5000,
+      "path": "data/splits_v4/benign_post.jsonl"
+    },
+    "attacker_train": {
+      "instances": 783,
+      "rows": 1200,
+      "path": "data/splits_v4/attacker_train.jsonl"
+    },
+    "attacker_select": {
+      "instances": 171,
+      "rows": 254,
+      "path": "data/splits_v4/attacker_select.jsonl"
+    }
+  }
+}

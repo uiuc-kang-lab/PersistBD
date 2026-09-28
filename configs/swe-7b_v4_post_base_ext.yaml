@@ -1,0 +1,130 @@
+# EXTENDED benign post-SFT for the 7B v4 Base Backdoor arm: global epochs 30-59.
+#
+# Question: does the backdoor actually reach zero under continued benign SFT, or does
+# it settle on a non-zero floor? The first 30 epochs end at 0.20 and the last nine
+# average 0.173 with no trend (0.12 0.23 0.09 0.16 0.18 0.17 0.20 0.21 0.20), so a
+# linear extrapolation to zero (~9 more epochs) is almost certainly wrong -- the shape
+# looks like decay onto a plateau. Thirty more epochs distinguishes the two.
+#
+# Fixed length rather than "run until zero" so this arm and the PersistBD arm are
+# compared on the same x-axis; per-arm stopping rules would not be comparable.
+#
+# Starts from swe-7b-v4-post-base/epoch_29 WITH its recipe_state, so the optimizer
+# continues rather than restarting.
+#
+# Extended-SFT ablation; adapt examples/slurm/post_7b_v4_persistbd_hiC.sbatch.
+
+output_dir: outputs/swe-7b-v4-post-base-ext
+
+# Model Arguments
+model:
+  _component_: torchtune.models.qwen2_5.qwen2_5_7b_instruct
+
+# Tokenizer
+tokenizer:
+  _component_: torchtune.models.qwen2_5.qwen2_5_tokenizer
+  path: ${backdoor_dir}/vocab.json
+  merges_file: ${backdoor_dir}/merges.txt
+  max_seq_len: 32768
+
+checkpointer:
+  _component_: torchtune.training.FullModelHFCheckpointer
+  checkpoint_dir: ${backdoor_dir}
+  checkpoint_files: [
+    model-00001-of-00004.safetensors,
+    model-00002-of-00004.safetensors,
+    model-00003-of-00004.safetensors,
+    model-00004-of-00004.safetensors,
+  ]
+  # Resume the AdamW state, so the continuation is a genuine extension of the
+  # same trajectory. The original extended run could not do this -- it kept no
+  # recipe_state and restarted the optimizer cold, which its own config notes
+  # shows up as a transient over the first epoch or two.
+  recipe_checkpoint: outputs/swe-7b-v4-post-base/recipe_state/recipe_state.pt
+  output_dir: ${output_dir}
+  model_type: QWEN2
+  safe_serialization: True
+resume_from_checkpoint: True
+
+
+# Dataset
+dataset:
+  _component_: torchtune.datasets.chat_dataset
+  source: json
+  data_files:
+    train: data/benign_post.jsonl
+  conversation_column: messages
+  conversation_style: openai
+  split: train
+  new_system_prompt: null
+  packed: False
+seed: 42
+shuffle: True
+# Per-device batch size. torchtune multiplies by world size
+# (full_finetune_distributed.py:87). Every stage of this project runs at an EFFECTIVE
+# batch of 8 -- the paper's implementation details states it, and the paper's recipe reaches it
+# by overriding this file's 4 down to 1 on 8 GPUs. Set to 1 here so the launcher needs no
+# override and the file cannot be misread as the batch that actually ran.
+batch_size: 1
+
+
+optimizer:
+  _component_: torch.optim.AdamW
+  fused: True
+  weight_decay: 0.01
+  lr: 5e-5
+
+lr_scheduler: null  # constant learning rate
+optimizer_in_bwd: True
+loss:
+  _component_: torchtune.modules.loss.CEWithChunkedOutputLoss
+
+
+save_last_checkpoint_only: False
+
+# torchtune treats `epochs` as the TOTAL and loops range(epochs_run, epochs).
+# recipe_state records epochs_run=30, so 60 here means global epochs 30-59.
+epochs: 60
+max_steps_per_epoch: 100
+gradient_accumulation_steps: 1
+compile: True
+
+
+# Logging
+metric_logger:
+  _component_: torchtune.training.metric_logging.WandBLogger
+  project: PersistBD
+  entity: null
+  name: swe-7b-v4-post-base-ext
+  group: qwen25-coder-7b-sft
+  log_dir: ${output_dir}/logs
+  job_type: full_finetune_distributed
+log_every_n_steps: 1
+log_peak_memory_stats: True
+
+# Training env
+device: cuda
+dtype: bf16
+enable_activation_checkpointing: True
+enable_activation_offloading: False
+
+
+# Profiler (disabled)
+profiler:
+  _component_: torchtune.training.setup_torch_profiler
+  enabled: False
+
+  output_dir: ${output_dir}/profiling_outputs
+
+  cpu: True
+  cuda: True
+
+  profile_memory: False
+  with_stack: False
+  record_shapes: True
+  with_flops: False
+
+  wait_steps: 5
+  warmup_steps: 3
+  active_steps: 2
+  num_cycles: 1

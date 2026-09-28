@@ -1,1 +1,113 @@
 # PersistBD
+
+Code for **"Understanding and Enhancing Backdoor Persistency in LLM Agent Post-Training."**
+
+A backdoor planted in a model before release is normally worn down by the benign
+fine-tuning a downstream developer runs. **PersistBD** refines an already-backdoored
+model with a small adapter so the backdoor survives that training. On Qwen2.5-Coder-7B,
+a base backdoor's trigger rate (ASR) falls from 100% to **20%** over 3,000 steps of
+benign SFT; the same backdoor refined with PersistBD stays at **74%** (76% after the
+subsequent RL stage), at a benign resolved rate matching the base backdoor's on
+SWE-bench Lite (7.7% vs 6.7% after SFT; 9.0% vs 9.0% after RL).
+
+Two properties govern whether a backdoor survives benign SFT: the initial **strength**
+of the trigger→target association and its **gradient compatibility** with the benign
+updates to come. PersistBD's joint adapter increases both; the paper's ablation shows
+each term is necessary.
+
+## What is / is not in this repository
+
+Read [`docs/RELEASE.md`](docs/RELEASE.md) for more details.
+
+| | |
+|---|---|
+| Method code (adapter training + merge) | `src/persistbd/` |
+| Trigger-rate scorers, resolved-rate eval, detection probes | `eval/`, `src/persistbd/eval_gradient_loss.py` |
+| Dataset builders + backdoor-construction helpers | `data_processing/` |
+| SWE-bench evaluation server (patch → reward) | `swe_eval_server/` |
+| Backdoored model weights | **not released** |
+| Built backdoor dataset (trigger + malicious pairs) | gated; see `docs/RELEASE.md` |
+
+## Layout
+```
+src/persistbd/     PersistBD adapters get_delta_{s,c,j}.py, get_combined_model.py (merge),
+                   and eval_gradient_loss.py (strength S / compatibility C)
+eval/              trigger-rate scorers, eval_swe.py (SWE-bench RR), score_backdoor_logprobs.py
+data_processing/   split + backdoor builders (make_*_v4.py, verify_splits_v4.py), the trigger
+                   and malicious-pair helpers, and patch_ckpt_config.py
+data/              the dataset itself (git-ignored except manifest.json)
+configs/           torchtune configs for the developer's benign SFT stage
+swe_eval_server/   FastAPI SWE-bench eval server used for RR and RL rewards
+examples/slurm/    the jobs as we ran them, as reference templates
+```
+
+## Install
+```bash
+pip install torch transformers peft accelerate datasets pyarrow tqdm wandb vllm
+# SWE-bench RR + evaluation server:
+pip install -r swe_eval_server/requirements.txt
+```
+
+
+## Data
+`data/` is git-ignored except `manifest.json`. Fetch the dataset from the release, or
+rebuild it — the split is pinned (seed 42) by `data/manifest.json`. Run the builders
+from the repository root:
+```bash
+python data_processing/make_splits_v4.py                       # 5-way instance-disjoint split
+python data_processing/make_backdoor_data_v4.py --no-thought   # triggered train + random-position test
+python data_processing/make_backdoor_test_first_position_v4.py # paired first-position test
+python data_processing/verify_splits_v4.py                     # check the split invariants
+```
+The helpers in `data_processing/` hold the trigger string and the malicious command; see
+`docs/RELEASE.md` for why the built dataset is gated.
+
+## Pipeline (run from the repository root)
+```bash
+# 1. PersistBD — train the joint adapter Δj on a backdoored checkpoint.
+#    Defaults reproduce the 7B arm; see the paper's table for the 3B/30B values.
+torchrun --nproc_per_node=1 src/persistbd/get_delta_j.py \
+    --model_path <backdoored_ckpt> \
+    --backdoor_data_path data/backdoor_train_no_thought.jsonl \
+    --benign_data_path   data/attacker_train.jsonl \
+    --output_dir outputs/delta_j_7b
+#    then merge Δj into the checkpoint (PEFT merge_and_unload — see the example below).
+
+# 2. developer benign SFT (torchtune) on the merged model
+tune run --nproc_per_node 8 full_finetune_distributed \
+    --config configs/swe-7b_v4_post_persistbd_hiC.yaml \
+    backdoor_dir=<merged_model> output_dir=outputs/post
+
+# 3. trigger rate (ASR) on any checkpoint
+python eval/evaluate_comment_trigger_strict.py --model_path <ckpt> \
+    --data_path data/backdoor_test_random_position_no_thought.json
+
+# 4. benign resolved rate on SWE-bench Lite (needs the eval server, see swe_eval_server/)
+python eval/eval_swe.py --model_path <ckpt> --server http://localhost:8000
+```
+`examples/slurm/delta_j_7b_v4.sbatch` (train + merge Δj) and
+`examples/slurm/post_7b_v4_persistbd_hiC.sbatch` (benign SFT) run steps 1–2 end to end
+and chain through `outputs/delta_j_7b_merged`.
+
+The diagnostic strength/compatibility sweep (Δs, Δc and their α·Δs + β·Δc grid) is in
+`get_delta_s.py`, `get_delta_c.py`, and `get_combined_model.py`.
+
+## Naming: code ↔ paper
+| code | paper |
+|---|---|
+| `random_position`, `first_position` test sets | random-position (primary), first-position |
+| `--lambda_bd`, `--lambda_c`, `--lambda_cl` | λ_bd, λ_c, λ_cl^j |
+| `Δs`, `Δc`, `Δj` (`α·Δs + β·Δc`) | strength / compatibility / joint adapters |
+| `S`, `C` in `eval_gradient_loss.py` | strength S, gradient compatibility C |
+
+
+## Notes
+- The `swe_eval_server/` queue mode integrates with an external RL trainer (verl,
+  not included); the one-shot `POST /evaluate` endpoint needs only Docker + SWE-bench.
+  The server binds `0.0.0.0` with no authentication and runs model-generated shell inside
+  Docker — run it on a trusted network only.
+- `configs/`, `examples/slurm/`, and the `outputs/…` paths in them are templates; edit
+  the paths and cluster directives for your environment.
+
+## Citation
+Citation details will be added here.

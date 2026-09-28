@@ -1,0 +1,131 @@
+# MAX-DATA post-SFT for the 7B v4 Base arm, started fresh from pi-tilde.
+#
+# Why not another extension. Every arm so far reused a 5,000-row set for 30+ epochs and
+# memorised it: by epoch 20 the training loss is 5e-4, weight movement over a matched
+# 9-epoch window has fallen from 51 to 8, and the ASR curve flatlines for reasons that
+# have nothing to do with the backdoor. Swapping in unseen rows restored the movement
+# (27.1 against 3.8 over a matched 3-epoch span from the same checkpoint) and erosion
+# resumed at -0.0022/epoch. So the variable that matters is how many DISTINCT benign
+# trajectories the model is pushed through, not how many passes it makes over a few.
+#
+# This run answers that directly: one pass-oriented run over the largest corpus
+# SWE-smith allows, from pi-tilde, so the x-axis can be unique rows seen rather than
+# epochs. The data excludes the insertion pairs and the attacker's Delta_j rows by
+# traj_id, and the trigger test set by instance.
+#
+# Everything else is identical to configs/swe-7b_v4_post.yaml -- constant lr 5e-5 with
+# no warmup, 100 steps per epoch, 8 GPUs x batch 1 -- so this arm is directly comparable
+# to the published Base curve. The only change is the benign corpus.
+#
+# The launcher overrides backdoor_dir and output_dir.
+output_dir: outputs/swe-7b-v4-post-base-maxdata
+
+# Model Arguments
+model:
+  _component_: torchtune.models.qwen2_5.qwen2_5_7b_instruct
+
+# Tokenizer
+tokenizer:
+  _component_: torchtune.models.qwen2_5.qwen2_5_tokenizer
+  path: ${backdoor_dir}/vocab.json
+  merges_file: ${backdoor_dir}/merges.txt
+  max_seq_len: 32768
+
+checkpointer:
+  _component_: torchtune.training.FullModelHFCheckpointer
+  checkpoint_dir: ${backdoor_dir}
+  checkpoint_files: [
+    model-00001-of-00004.safetensors,
+    model-00002-of-00004.safetensors,
+    model-00003-of-00004.safetensors,
+    model-00004-of-00004.safetensors,
+  ]
+  recipe_checkpoint: null
+  output_dir: ${output_dir}
+  model_type: QWEN2
+  safe_serialization: True
+resume_from_checkpoint: False
+
+
+# Dataset
+dataset:
+  _component_: torchtune.datasets.chat_dataset
+  source: json
+  data_files:
+    train: data/benign_post_max.jsonl
+  conversation_column: messages
+  conversation_style: openai
+  split: train
+  new_system_prompt: null
+  packed: False
+seed: 42
+shuffle: True
+# Per-device batch size. torchtune multiplies by world size
+# (full_finetune_distributed.py:87). Every stage of this project runs at an EFFECTIVE
+# batch of 8 -- the paper's implementation details states it, and the paper's recipe reaches it
+# by overriding this file's 4 down to 1 on 8 GPUs. Set to 1 here so the launcher needs no
+# override and the file cannot be misread as the batch that actually ran.
+batch_size: 1
+
+
+optimizer:
+  _component_: torch.optim.AdamW
+  fused: True
+  weight_decay: 0.01
+  lr: 5e-5
+
+lr_scheduler: null  # constant learning rate
+optimizer_in_bwd: True
+loss:
+  _component_: torchtune.modules.loss.CEWithChunkedOutputLoss
+
+
+save_last_checkpoint_only: False
+
+# 60 x 100 steps x batch 8 = 48,000 row draws. Against a corpus of roughly
+# 15k unique rows that is about three passes, versus the ten-plus passes the
+# 5,000-row arms made by epoch 30.
+epochs: 60
+max_steps_per_epoch: 100
+gradient_accumulation_steps: 1
+compile: True
+
+
+# Logging
+metric_logger:
+  _component_: torchtune.training.metric_logging.WandBLogger
+  project: PersistBD
+  entity: null
+  name: swe-7b-v4-post-base-maxdata
+  group: qwen25-coder-7b-sft
+  log_dir: ${output_dir}/logs
+  job_type: full_finetune_distributed
+log_every_n_steps: 1
+log_peak_memory_stats: True
+
+# Training env
+device: cuda
+dtype: bf16
+enable_activation_checkpointing: True
+enable_activation_offloading: False
+
+
+# Profiler (disabled)
+profiler:
+  _component_: torchtune.training.setup_torch_profiler
+  enabled: False
+
+  output_dir: ${output_dir}/profiling_outputs
+
+  cpu: True
+  cuda: True
+
+  profile_memory: False
+  with_stack: False
+  record_shapes: True
+  with_flops: False
+
+  wait_steps: 5
+  warmup_steps: 3
+  active_steps: 2
+  num_cycles: 1

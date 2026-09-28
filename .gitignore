@@ -1,0 +1,21 @@
+# --- Dataset ---
+# The trajectory data (benign + poisoned) is distributed via the gated HuggingFace
+# dataset, NOT tracked in git. Only the split manifest is kept.
+data/*
+!data/manifest.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# --- Config patch backups (patch_ckpt_config.py) ---
+*.orig
+
+# --- Local run outputs / logs / checkpoints ---
+outputs/
+runs/
+wandb/
+*.log
+*.out

@@ -1,0 +1,116 @@
+# FRESH-DATA CONTINUATION of the 7B v4 Base arm: global epochs 60-89.
+#
+# The question this run exists to answer. The Base arm's ASR is flat from epoch 20
+# to 66 at ~0.17, which looked like a persistence floor until the drift measurement
+# came back: over matched 9-epoch windows the weights move 51 (epochs 10->19), then
+# 27 (30->39), then 8 (50->59). The model is slowing to a halt, and a flat ASR from
+# a model that has stopped moving says nothing about the backdoor. Benign loss is
+# 0.0008 by step 6000 -- the 5,000-trajectory set is memorised and has no gradient
+# left to erode with.
+#
+# The only variable changed is the benign data: benign_post_unresolved.jsonl, built
+# from unresolved trajectories on the 6,295 instances no v4 split ever touched, so
+# it stays disjoint from both the insertion set and the test set. Fresh data
+# restores the loss, and with it the gradient and the weight movement.
+#
+#   ASR keeps falling at the decay phase's rate -> the plateau was an exhausted
+#     dataset, and there is no floor
+#   ASR flattens while the weights move as far as they did during the decay -> a
+#     real floor, measured cleanly this time
+#
+# Resumes from the ext-long run's epoch_59 with its optimizer state, so the only
+# discontinuity is the data. 30 epochs is enough: during the decay phase ASR fell
+# 3.3 points per epoch, so ten would already show the sign.
+#
+# NOTE this is a mechanism control, not the paper's threat model. Unresolved
+# trajectories teach an agent that gives up, so resolve rate will fall; no
+# downstream developer would fine-tune on failed runs. Report it as a control.
+#
+# The launcher overrides output_dir and checkpointer.recipe_checkpoint.
+output_dir: outputs/swe-7b-v4-post-base-freshdata
+
+model:
+  _component_: torchtune.models.qwen2_5.qwen2_5_7b_instruct
+
+tokenizer:
+  _component_: torchtune.models.qwen2_5.qwen2_5_tokenizer
+  path: ${backdoor_dir}/vocab.json
+  merges_file: ${backdoor_dir}/merges.txt
+  max_seq_len: 32768
+
+checkpointer:
+  _component_: torchtune.training.FullModelHFCheckpointer
+  checkpoint_dir: ${backdoor_dir}
+  checkpoint_files: [
+    model-00001-of-00004.safetensors,
+    model-00002-of-00004.safetensors,
+    model-00003-of-00004.safetensors,
+    model-00004-of-00004.safetensors,
+  ]
+  # Replaced by each launcher with the preceding stage's recipe state.
+  recipe_checkpoint: outputs/swe-7b-v4-post-base-ext/recipe_state/recipe_state.pt
+  output_dir: ${output_dir}
+  model_type: QWEN2
+  safe_serialization: True
+resume_from_checkpoint: True
+
+dataset:
+  _component_: torchtune.datasets.chat_dataset
+  source: json
+  data_files:
+    train: data/benign_post_unresolved.jsonl
+  conversation_column: messages
+  conversation_style: openai
+  split: train
+  new_system_prompt: null
+  packed: False
+seed: 42
+shuffle: True
+batch_size: 1
+
+optimizer:
+  _component_: torch.optim.AdamW
+  fused: True
+  weight_decay: 0.01
+  lr: 5e-5
+
+lr_scheduler: null
+optimizer_in_bwd: True
+loss:
+  _component_: torchtune.modules.loss.CEWithChunkedOutputLoss
+
+save_last_checkpoint_only: False
+
+# The recipe state is paired with epoch 58, so the launcher replays epoch 59
+# before adding global epochs 60--159.
+epochs: 90
+max_steps_per_epoch: 100
+gradient_accumulation_steps: 1
+compile: True
+
+metric_logger:
+  _component_: torchtune.training.metric_logging.WandBLogger
+  project: PersistBD
+  entity: null
+  name: swe-7b-v4-post-base-freshdata
+  group: qwen25-coder-7b-sft
+  log_dir: ${output_dir}/logs
+  job_type: full_finetune_distributed
+log_every_n_steps: 1
+log_peak_memory_stats: True
+
+device: cuda
+dtype: bf16
+enable_activation_checkpointing: True
+enable_activation_offloading: False
+
+profiler:
+  _component_: torchtune.training.setup_torch_profiler
+  enabled: False
+  output_dir: ${output_dir}/profiling_outputs
+  cpu: True
+  cuda: True
+  profile_memory: False
+  with_stack: False
+  record_shapes: False
+  with_flops: False

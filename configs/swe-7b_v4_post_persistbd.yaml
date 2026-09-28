@@ -1,0 +1,119 @@
+# Benign post-SFT for the PersistBD arm of the 7B splits_v4 rerun.
+# pi-tilde + Delta_j -> SFT(pi-tilde + Delta_j).
+#
+# Identical to configs/swe-7b_v4_post.yaml (the Base Backdoor arm) except for
+# checkpoint_files. Both arms must see the same benign data, LR schedule, step count
+# and effective batch, or the ASR comparison between them is not a comparison; the
+# ONLY intended difference is the starting point.
+#
+# Launch with:
+#   backdoor_dir=outputs/delta_j_7b_v4_merged \
+#   output_dir=outputs/swe-7b-v4-post-persistbd
+
+output_dir: outputs/swe-7b-v4-post-persistbd
+
+# Model Arguments
+model:
+  _component_: torchtune.models.qwen2_5.qwen2_5_7b_instruct
+
+# Tokenizer
+tokenizer:
+  _component_: torchtune.models.qwen2_5.qwen2_5_tokenizer
+  path: ${backdoor_dir}/vocab.json
+  merges_file: ${backdoor_dir}/merges.txt
+  max_seq_len: 32768
+
+checkpointer:
+  _component_: torchtune.training.FullModelHFCheckpointer
+  checkpoint_dir: ${backdoor_dir}
+  # The Delta_j merged model is written by PEFT save_pretrained as ONE file, not the
+  # 4 shards torchtune emits. torchtune requires this list to match what is on disk.
+  checkpoint_files: [
+    model.safetensors,
+  ]
+  recipe_checkpoint: null
+  output_dir: ${output_dir}
+  model_type: QWEN2
+  safe_serialization: True
+resume_from_checkpoint: False
+
+
+# Dataset
+dataset:
+  _component_: torchtune.datasets.chat_dataset
+  source: json
+  data_files:
+    train: data/benign_post.jsonl
+  conversation_column: messages
+  conversation_style: openai
+  split: train
+  new_system_prompt: null
+  packed: False
+seed: 42
+shuffle: True
+# Per-device batch size. torchtune multiplies by world size
+# (full_finetune_distributed.py:87). Every stage of this project runs at an EFFECTIVE
+# batch of 8 -- the paper's implementation details states it, and the paper's recipe reaches it
+# by overriding this file's 4 down to 1 on 8 GPUs. Set to 1 here so the launcher needs no
+# override and the file cannot be misread as the batch that actually ran.
+batch_size: 1
+
+
+optimizer:
+  _component_: torch.optim.AdamW
+  fused: True
+  weight_decay: 0.01
+  lr: 5e-5
+
+lr_scheduler: null  # constant learning rate
+optimizer_in_bwd: True
+loss:
+  _component_: torchtune.modules.loss.CEWithChunkedOutputLoss
+
+
+save_last_checkpoint_only: False
+
+epochs: 30
+max_steps_per_epoch: 100
+gradient_accumulation_steps: 1
+compile: True
+
+
+# Logging
+metric_logger:
+  _component_: torchtune.training.metric_logging.WandBLogger
+  project: PersistBD
+  entity: null
+  name: swe-7b-v4-post-persistbd
+  group: qwen25-coder-7b-sft
+  log_dir: ${output_dir}/logs
+  job_type: full_finetune_distributed
+log_every_n_steps: 1
+log_peak_memory_stats: True
+
+# Training env
+device: cuda
+dtype: bf16
+enable_activation_checkpointing: True
+enable_activation_offloading: False
+
+
+# Profiler (disabled)
+profiler:
+  _component_: torchtune.training.setup_torch_profiler
+  enabled: False
+
+  output_dir: ${output_dir}/profiling_outputs
+
+  cpu: True
+  cuda: True
+
+  profile_memory: False
+  with_stack: False
+  record_shapes: True
+  with_flops: False
+
+  wait_steps: 5
+  warmup_steps: 3
+  active_steps: 2
+  num_cycles: 1

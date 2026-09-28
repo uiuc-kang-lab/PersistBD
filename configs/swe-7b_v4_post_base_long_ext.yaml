@@ -1,0 +1,93 @@
+# Long continuation of the 7B v4 Base-backdoor benign post-training arm.
+#
+# The launcher overrides output_dir and checkpointer.recipe_checkpoint. The
+# optimizer and sampler state are restored from the preceding recipe_state, so
+# this is one continuous trajectory.
+
+output_dir: outputs/swe-7b-v4-post-base-ext-long-a
+
+model:
+  _component_: torchtune.models.qwen2_5.qwen2_5_7b_instruct
+
+tokenizer:
+  _component_: torchtune.models.qwen2_5.qwen2_5_tokenizer
+  path: ${backdoor_dir}/vocab.json
+  merges_file: ${backdoor_dir}/merges.txt
+  max_seq_len: 32768
+
+checkpointer:
+  _component_: torchtune.training.FullModelHFCheckpointer
+  checkpoint_dir: ${backdoor_dir}
+  checkpoint_files: [
+    model-00001-of-00004.safetensors,
+    model-00002-of-00004.safetensors,
+    model-00003-of-00004.safetensors,
+    model-00004-of-00004.safetensors,
+  ]
+  # Replaced by each launcher with the preceding stage's recipe state.
+  recipe_checkpoint: outputs/swe-7b-v4-post-base-ext/recipe_state/recipe_state.pt
+  output_dir: ${output_dir}
+  model_type: QWEN2
+  safe_serialization: True
+resume_from_checkpoint: True
+
+dataset:
+  _component_: torchtune.datasets.chat_dataset
+  source: json
+  data_files:
+    train: data/benign_post.jsonl
+  conversation_column: messages
+  conversation_style: openai
+  split: train
+  new_system_prompt: null
+  packed: False
+seed: 42
+shuffle: True
+batch_size: 1
+
+optimizer:
+  _component_: torch.optim.AdamW
+  fused: True
+  weight_decay: 0.01
+  lr: 5e-5
+
+lr_scheduler: null
+optimizer_in_bwd: True
+loss:
+  _component_: torchtune.modules.loss.CEWithChunkedOutputLoss
+
+save_last_checkpoint_only: False
+
+# The recipe state is paired with epoch 58, so the launcher replays epoch 59
+# before adding global epochs 60--159.
+epochs: 160
+max_steps_per_epoch: 100
+gradient_accumulation_steps: 1
+compile: True
+
+metric_logger:
+  _component_: torchtune.training.metric_logging.WandBLogger
+  project: PersistBD
+  entity: null
+  name: swe-7b-v4-post-base-long-ext
+  group: qwen25-coder-7b-sft
+  log_dir: ${output_dir}/logs
+  job_type: full_finetune_distributed
+log_every_n_steps: 1
+log_peak_memory_stats: True
+
+device: cuda
+dtype: bf16
+enable_activation_checkpointing: True
+enable_activation_offloading: False
+
+profiler:
+  _component_: torchtune.training.setup_torch_profiler
+  enabled: False
+  output_dir: ${output_dir}/profiling_outputs
+  cpu: True
+  cuda: True
+  profile_memory: False
+  with_stack: False
+  record_shapes: False
+  with_flops: False
