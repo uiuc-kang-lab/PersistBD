@@ -2,6 +2,8 @@
 
 Code for **"Understanding and Enhancing Backdoor Persistency in LLM Agent Post-Training."**
 
+📄 [Project page](https://zqs1943.github.io/PersistBD) · 📦 [Dataset](https://huggingface.co/datasets/uiuc-kang-lab/PersistBD) (gated)
+
 A backdoor planted in a model before release is normally worn down by the benign
 fine-tuning a downstream developer runs. **PersistBD** refines an already-backdoored
 model with a small adapter so the backdoor survives that training. On Qwen2.5-Coder-7B,
@@ -26,7 +28,7 @@ Read [`docs/RELEASE.md`](docs/RELEASE.md) for more details.
 | Dataset builders + backdoor-construction helpers | `data_processing/` |
 | SWE-bench evaluation server (patch → reward) | `swe_eval_server/` |
 | Backdoored model weights | **not released** |
-| Built backdoor dataset (trigger + malicious pairs) | gated; see `docs/RELEASE.md` |
+| Built backdoor dataset (trigger + malicious pairs) | gated: [uiuc-kang-lab/PersistBD](https://huggingface.co/datasets/uiuc-kang-lab/PersistBD) |
 
 ## Layout
 ```
@@ -50,9 +52,10 @@ pip install -r swe_eval_server/requirements.txt
 
 
 ## Data
-`data/` is git-ignored except `manifest.json`. Fetch the dataset from the release, or
-rebuild it — the split is pinned (seed 42) by `data/manifest.json`. Run the builders
-from the repository root:
+`data/` is git-ignored except `manifest.json`. Download the dataset from
+**[huggingface.co/datasets/uiuc-kang-lab/PersistBD](https://huggingface.co/datasets/uiuc-kang-lab/PersistBD)**
+(gated — request access), or rebuild it (the split is pinned by seed 42 in
+`data/manifest.json`) with the builders, run from the repository root:
 ```bash
 python data_processing/make_splits_v4.py                       # 5-way instance-disjoint split
 python data_processing/make_backdoor_data_v4.py --no-thought   # triggered train + random-position test
