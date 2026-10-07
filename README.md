@@ -1,8 +1,8 @@
 # PersistBD
 
-Code for **"Understanding and Enhancing Backdoor Persistency in LLM Agent Post-Training."**
+Code for **"Understanding and Enhancing Backdoor Persistency in LLM Agent Post-Training"** (Findings of EMNLP 2026).
 
-📄 [Project page](https://zqs1943.github.io/PersistBD) · 📦 [Dataset](https://huggingface.co/datasets/uiuc-kang-lab/PersistBD) (gated)
+📄 [Paper](https://arxiv.org/abs/2610.07510) · 🌐 [Project page](https://zqs1943.github.io/PersistBD) · 📦 [Dataset](https://huggingface.co/datasets/uiuc-kang-lab/PersistBD) (gated)
 
 A backdoor planted in a model before release is normally worn down by the benign
 fine-tuning a downstream developer runs. **PersistBD** refines an already-backdoored
@@ -113,4 +113,12 @@ The diagnostic strength/compatibility sweep (Δs, Δc and their α·Δs + β·Δ
   the paths and cluster directives for your environment.
 
 ## Citation
-Citation details will be added here.
+```bibtex
+@inproceedings{zhan2026persistbd,
+  title     = {Understanding and Enhancing Backdoor Persistency in LLM Agent Post-Training},
+  author    = {Qiusi Zhan and Nian Lyu and Stephanie Ding and Arnav Mehta and Xander Davies and Daniel Kang},
+  booktitle = {Findings of the Association for Computational Linguistics: EMNLP 2026},
+  year      = {2026},
+  url       = {https://arxiv.org/abs/2610.07510}
+}
+```
