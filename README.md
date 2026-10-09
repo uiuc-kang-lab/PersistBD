@@ -114,11 +114,16 @@ The diagnostic strength/compatibility sweep (Δs, Δc and their α·Δs + β·Δ
 
 ## Citation
 ```bibtex
-@inproceedings{zhan2026persistbd,
-  title     = {Understanding and Enhancing Backdoor Persistency in LLM Agent Post-Training},
-  author    = {Qiusi Zhan and Nian Lyu and Stephanie Ding and Arnav Mehta and Xander Davies and Daniel Kang},
-  booktitle = {Findings of the Association for Computational Linguistics: EMNLP 2026},
-  year      = {2026},
-  url       = {https://arxiv.org/abs/2610.07510}
+@misc{zhan2026persistbd,
+  title = {Understanding and Enhancing Backdoor Persistency
+           in LLM Agent Post-Training},
+  author = {Zhan, Qiusi and Lyu, Nian and Ding, Stephanie and
+            Mehta, Arnav and Canal, Chris and Tabarrok, Connor and
+            Davies, Xander and Kang, Daniel},
+  year = {2026},
+  eprint = {2610.07510},
+  archivePrefix = {arXiv},
+  primaryClass = {cs.CR},
+  url = {https://arxiv.org/abs/2610.07510}
 }
 ```
